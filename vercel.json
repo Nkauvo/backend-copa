@@ -8,16 +8,12 @@
   ],
   "routes": [
     {
-      "src": "/api/(.*)",
-      "dest": "/index.js"
-    },
-    {
       "src": "/(.*)",
-      "dest": "/index.js"
+      "dest": "index.js"
     }
   ],
   "env": {
-    "SUPABASE_URL": "https://seu-projeto.supabase.co",
-    "SUPABASE_ANON_KEY": "sua-chave-anon-aqui"
+    "SUPABASE_URL": "https://pohqjocjoeuirfwmvnqe.supabase.co",
+    "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBvaHFqb2Nqb2V1aXJmd212bnFlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyMzUyODQsImV4cCI6MjA5NjgxMTI4NH0.S4h5cZ9PE3XVBc8tshQljphlsAVhu-2OEEdJNYgo7UY"
   }
 }
