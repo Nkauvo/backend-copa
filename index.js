@@ -1,30 +1,45 @@
-// index.js - Backend para Bolão da Copa
+// index.js - Backend corrigido
 const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
-app.use(cors());
+
+// Configuração CORS mais permissiva
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Configuração do Supabase
-const supabaseUrl = process.env.SUPABASE_URL || 'https://seu-projeto.supabase.co';
-const supabaseKey = process.env.SUPABASE_ANON_KEY || 'sua-chave-anon';
+const supabaseUrl = process.env.SUPABASE_URL || 'https://pohqjocjoeuirfwmvnqe.supabase.co';
+const supabaseKey = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBvaHFqb2Nqb2V1aXJmd212bnFlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyMzUyODQsImV4cCI6MjA5NjgxMTI4NH0.S4h5cZ9PE3XVBc8tshQljphlsAVhu-2OEEdJNYgo7UY';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// ==================== AUTENTICAÇÃO ====================
+// ==================== AUTENTICAÇÃO ====================   
 
 // Login
 app.post('/api/auth/login', async (req, res) => {
   try {
+    console.log('📝 Tentativa de login:', req.body.email);
+    
     const { email, password } = req.body;
     
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email e senha são obrigatórios' });
+    }
+
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password
     });
 
     if (error) {
+      console.error('❌ Erro no login:', error.message);
       return res.status(401).json({ error: error.message });
     }
 
@@ -39,6 +54,8 @@ app.post('/api/auth/login', async (req, res) => {
       console.error('Erro ao buscar perfil:', perfilError);
     }
 
+    console.log('✅ Login bem-sucedido:', email);
+    
     res.json({
       user: {
         id: data.user.id,
@@ -47,6 +64,7 @@ app.post('/api/auth/login', async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('❌ Erro no login:', error);
     res.status(500).json({ error: 'Erro interno no servidor' });
   }
 });
@@ -54,15 +72,42 @@ app.post('/api/auth/login', async (req, res) => {
 // Cadastro
 app.post('/api/auth/cadastro', async (req, res) => {
   try {
+    console.log('📝 Dados recebidos no cadastro:', req.body);
+    
     const { email, password, nome_usuario } = req.body;
 
-    // Validações
-    if (!email || !password || !nome_usuario) {
-      return res.status(400).json({ error: 'Todos os campos são obrigatórios' });
+    // Validações detalhadas
+    if (!email) {
+      return res.status(400).json({ error: 'Email é obrigatório' });
+    }
+    
+    if (!password) {
+      return res.status(400).json({ error: 'Senha é obrigatória' });
+    }
+    
+    if (!nome_usuario) {
+      return res.status(400).json({ error: 'Nome de usuário é obrigatório' });
     }
 
     if (password.length < 6) {
       return res.status(400).json({ error: 'Senha deve ter no mínimo 6 caracteres' });
+    }
+
+    // Validação de email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Email inválido' });
+    }
+
+    // Verifica se o nome de usuário já existe
+    const { data: usuarioExistente, error: buscaError } = await supabase
+      .from('perfis')
+      .select('nome_usuario')
+      .eq('nome_usuario', nome_usuario)
+      .maybeSingle();
+
+    if (usuarioExistente) {
+      return res.status(400).json({ error: 'Nome de usuário já está em uso' });
     }
 
     // Cria usuário no Auth
@@ -77,7 +122,12 @@ app.post('/api/auth/cadastro', async (req, res) => {
     });
 
     if (error) {
+      console.error('❌ Erro no cadastro (Auth):', error.message);
       return res.status(400).json({ error: error.message });
+    }
+
+    if (!data.user) {
+      return res.status(400).json({ error: 'Erro ao criar usuário' });
     }
 
     // Cria perfil na tabela perfis
@@ -91,11 +141,17 @@ app.post('/api/auth/cadastro', async (req, res) => {
       }]);
 
     if (perfilError) {
-      console.error('Erro ao criar perfil:', perfilError);
-      // Não retorna erro pois o usuário já foi criado
+      console.error('❌ Erro ao criar perfil:', perfilError.message);
+      // Tenta deletar o usuário criado no auth se falhar ao criar o perfil
+      await supabase.auth.admin.deleteUser(data.user.id);
+      return res.status(500).json({ error: 'Erro ao criar perfil do usuário' });
     }
 
+    console.log('✅ Cadastro bem-sucedido:', email);
+    
     res.json({
+      success: true,
+      message: 'Usuário cadastrado com sucesso',
       user: {
         id: data.user.id,
         email: data.user.email,
@@ -103,6 +159,7 @@ app.post('/api/auth/cadastro', async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('❌ Erro no cadastro:', error);
     res.status(500).json({ error: 'Erro interno no servidor' });
   }
 });
@@ -112,6 +169,10 @@ app.post('/api/auth/cadastro', async (req, res) => {
 app.post('/api/perfil', async (req, res) => {
   try {
     const { userId } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'ID do usuário é obrigatório' });
+    }
 
     const { data, error } = await supabase
       .from('perfis')
@@ -125,13 +186,13 @@ app.post('/api/perfil', async (req, res) => {
 
     res.json(data);
   } catch (error) {
+    console.error('❌ Erro ao buscar perfil:', error);
     res.status(500).json({ error: 'Erro interno no servidor' });
   }
 });
 
 // ==================== JOGOS ====================
 
-// Listar todos os jogos
 app.get('/api/jogos', async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -145,39 +206,17 @@ app.get('/api/jogos', async (req, res) => {
 
     res.json(data || []);
   } catch (error) {
-    res.status(500).json({ error: 'Erro interno no servidor' });
-  }
-});
-
-// Buscar jogo por ID
-app.get('/api/jogos/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const { data, error } = await supabase
-      .from('jogos')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (error) {
-      return res.status(404).json({ error: 'Jogo não encontrado' });
-    }
-
-    res.json(data);
-  } catch (error) {
+    console.error('❌ Erro ao buscar jogos:', error);
     res.status(500).json({ error: 'Erro interno no servidor' });
   }
 });
 
 // ==================== PALPITES ====================
 
-// Criar/Atualizar palpite
 app.post('/api/palpites', async (req, res) => {
   try {
     const { userId, jogoId, placar_casa, placar_fora } = req.body;
 
-    // Validações
     if (!userId || !jogoId || placar_casa === undefined || placar_fora === undefined) {
       return res.status(400).json({ error: 'Todos os campos são obrigatórios' });
     }
@@ -197,18 +236,18 @@ app.post('/api/palpites', async (req, res) => {
       return res.status(400).json({ error: 'Este jogo já foi encerrado' });
     }
 
-    // Verifica se já existe um palpite para este jogo
-    const { data: palpiteExistente, error: buscaError } = await supabase
+    // Verifica se já existe um palpite
+    const { data: palpiteExistente } = await supabase
       .from('palpites')
       .select('id')
       .eq('usuario_id', userId)
       .eq('jogo_id', jogoId)
-      .single();
+      .maybeSingle();
 
     let resultado;
 
     if (palpiteExistente) {
-      // Atualiza palpite existente
+      // Atualiza
       const { data, error } = await supabase
         .from('palpites')
         .update({
@@ -224,7 +263,7 @@ app.post('/api/palpites', async (req, res) => {
       }
       resultado = data;
     } else {
-      // Cria novo palpite
+      // Cria novo
       const { data, error } = await supabase
         .from('palpites')
         .insert([{
@@ -248,68 +287,7 @@ app.post('/api/palpites', async (req, res) => {
       palpite: resultado[0]
     });
   } catch (error) {
-    res.status(500).json({ error: 'Erro interno no servidor' });
-  }
-});
-
-// Listar palpites de um usuário
-app.get('/api/palpites/usuario/:userId', async (req, res) => {
-  try {
-    const { userId } = req.params;
-
-    const { data, error } = await supabase
-      .from('palpites')
-      .select(`
-        *,
-        jogos (
-          time_casa,
-          time_fora,
-          escudo_casa,
-          escudo_fora,
-          data_jogo,
-          gols_casa,
-          gols_fora,
-          encerrado
-        )
-      `)
-      .eq('usuario_id', userId)
-      .order('criado_em', { ascending: false });
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
-
-    res.json(data || []);
-  } catch (error) {
-    res.status(500).json({ error: 'Erro interno no servidor' });
-  }
-});
-
-// Listar todos os palpites
-app.get('/api/palpites', async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from('palpites')
-      .select(`
-        *,
-        perfis (nome_usuario),
-        jogos (
-          time_casa,
-          time_fora,
-          data_jogo,
-          gols_casa,
-          gols_fora,
-          encerrado
-        )
-      `)
-      .order('criado_em', { ascending: false });
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
-
-    res.json(data || []);
-  } catch (error) {
+    console.error('❌ Erro ao salvar palpite:', error);
     res.status(500).json({ error: 'Erro interno no servidor' });
   }
 });
@@ -329,111 +307,7 @@ app.get('/api/ranking', async (req, res) => {
 
     res.json(data || []);
   } catch (error) {
-    res.status(500).json({ error: 'Erro interno no servidor' });
-  }
-});
-
-// ==================== PONTUAÇÃO (Sistema de Pontos) ====================
-
-// Calcular pontos após um jogo ser encerrado
-app.post('/api/calcular-pontos', async (req, res) => {
-  try {
-    const { jogoId } = req.body;
-
-    // Busca o jogo
-    const { data: jogo, error: jogoError } = await supabase
-      .from('jogos')
-      .select('*')
-      .eq('id', jogoId)
-      .single();
-
-    if (jogoError || !jogo) {
-      return res.status(404).json({ error: 'Jogo não encontrado' });
-    }
-
-    if (!jogo.encerrado) {
-      return res.status(400).json({ error: 'Jogo ainda não foi encerrado' });
-    }
-
-    // Busca todos os palpites para este jogo
-    const { data: palpites, error: palpitesError } = await supabase
-      .from('palpites')
-      .select('*')
-      .eq('jogo_id', jogoId);
-
-    if (palpitesError) {
-      return res.status(500).json({ error: palpitesError.message });
-    }
-
-    const golsCasa = jogo.gols_casa || 0;
-    const golsFora = jogo.gols_fora || 0;
-
-    let resultados = [];
-
-    for (const palpite of palpites) {
-      let pontos = 0;
-
-      // Verifica se acertou o placar exato
-      if (palpite.palpite_casa === golsCasa && palpite.palpite_fora === golsFora) {
-        pontos = 5; // Placar exato
-      } 
-      // Verifica se acertou o vencedor ou empate
-      else {
-        const palpiteResultado = palpite.palpite_casa > palpite.palpite_fora ? 'casa' :
-                                 palpite.palpite_casa < palpite.palpite_fora ? 'fora' : 'empate';
-        const jogoResultado = golsCasa > golsFora ? 'casa' :
-                             golsCasa < golsFora ? 'fora' : 'empate';
-
-        if (palpiteResultado === jogoResultado) {
-          pontos = 3; // Acertou o resultado
-        }
-
-        // Bônus por acertar o placar de um dos times
-        if (palpite.palpite_casa === golsCasa || palpite.palpite_fora === golsFora) {
-          pontos += 1;
-        }
-      }
-
-      // Atualiza os pontos do palpite
-      const { error: updateError } = await supabase
-        .from('palpites')
-        .update({ pontos_recebidos: pontos })
-        .eq('id', palpite.id);
-
-      if (updateError) {
-        console.error('Erro ao atualizar pontos do palpite:', updateError);
-      }
-
-      // Atualiza os pontos do usuário
-      const { data: usuario, error: usuarioError } = await supabase
-        .from('perfis')
-        .select('pontos')
-        .eq('id', palpite.usuario_id)
-        .single();
-
-      if (!usuarioError && usuario) {
-        const novosPontos = (usuario.pontos || 0) + pontos;
-        await supabase
-          .from('perfis')
-          .update({ pontos: novosPontos })
-          .eq('id', palpite.usuario_id);
-      }
-
-      resultados.push({
-        usuario_id: palpite.usuario_id,
-        pontos_recebidos: pontos,
-        palpite: `${palpite.palpite_casa}x${palpite.palpite_fora}`,
-        resultado: `${golsCasa}x${golsFora}`
-      });
-    }
-
-    res.json({
-      success: true,
-      jogo: `${jogo.time_casa} vs ${jogo.time_fora}`,
-      resultado: `${golsCasa}x${golsFora}`,
-      palpites_processados: resultados
-    });
-  } catch (error) {
+    console.error('❌ Erro ao buscar ranking:', error);
     res.status(500).json({ error: 'Erro interno no servidor' });
   }
 });
@@ -441,10 +315,14 @@ app.post('/api/calcular-pontos', async (req, res) => {
 // ==================== ROTA DE SAÚDE ====================
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'online', timestamp: new Date().toISOString() });
+  res.json({ 
+    status: 'online', 
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
 });
 
-// ==================== EXPORTAÇÃO PARA VERCEL ====================
+// ==================== EXPORTAÇÃO ====================
 
 module.exports = app;
 
