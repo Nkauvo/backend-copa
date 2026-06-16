@@ -1,0 +1,18 @@
+{
+  "name": "bolao-backend-main",
+  "version": "1.0.0",
+  "description": "Backend para o Bolão da Copa",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.38.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
