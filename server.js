@@ -32,7 +32,11 @@ app.post('/auth/cadastro', async (req, res) => {
             password
         });
 
-        if (authError) return res.status(400).json({ error: authError.message });
+        // Se der erro no Auth, pegamos estritamente a propriedade .message como texto
+        if (authError) {
+            console.error("Erro detalhado do Supabase Auth:", authError);
+            return res.status(400).json({ error: authError.message || 'Erro desconhecido no Auth' });
+        }
 
         if (authData?.user) {
             // Cria o registro complementar na tabela 'perfis'
@@ -40,21 +44,23 @@ app.post('/auth/cadastro', async (req, res) => {
                 .from('perfis')
                 .insert([
                     { 
-                        id: authData.user.id, // Vincula o UUID do Auth
+                        id: authData.user.id, 
                         nome_usuario: nome_usuario,
                         pontos: 0 
                     }
                 ]);
 
             if (profileError) {
-                return res.status(400).json({ error: `Erro ao criar perfil: ${profileError.message}` });
+                console.error("Erro detalhado da tabela perfis:", profileError);
+                return res.status(400).json({ error: profileError.message || 'Erro ao criar perfil' });
             }
         }
 
         return res.status(201).json({ message: 'Usuário e perfil criados com sucesso!' });
 
     } catch (err) {
-        return res.status(500).json({ error: 'Erro interno no servidor.' });
+        console.error("Erro interno capturado pelo catch:", err);
+        return res.status(500).json({ error: err.message || 'Erro interno no servidor.' });
     }
 });
 
