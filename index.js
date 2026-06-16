@@ -1,4 +1,5 @@
 // index.js - Backend com logs detalhados
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
@@ -121,15 +122,27 @@ app.post('/api/auth/cadastro', async (req, res) => {
 
     if (error) {
       console.error('❌ Erro no Auth:', error.message);
-      console.error('❌ Detalhes:', error);
+      console.error('❌ Detalhes completos:', JSON.stringify(error, null, 2));
+      console.error('❌ Status:', error.status);
+      console.error('❌ Code:', error.code);
       
-      if (error.message.includes('already registered')) {
+      const errMsg = error.message || error.msg || '';
+      
+      if (errMsg.includes('already registered') || errMsg.includes('already been registered')) {
         return res.status(400).json({ error: 'Este email já está cadastrado' });
       }
       
+      if (errMsg.includes('rate limit') || errMsg.includes('too many')) {
+        return res.status(429).json({ error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' });
+      }
+
+      if (errMsg.includes('invalid') || errMsg.includes('Invalid')) {
+        return res.status(400).json({ error: 'Dados inválidos. Verifique email e senha.' });
+      }
+      
       return res.status(400).json({ 
-        error: error.message,
-        details: error
+        error: errMsg || 'Erro ao criar conta. Verifique seus dados e tente novamente.',
+        details: error.status || error.code || 'unknown'
       });
     }
 
@@ -460,6 +473,17 @@ app.get('/api/ranking', async (req, res) => {
     console.error('❌ Erro ao buscar ranking:', error);
     res.status(500).json({ error: 'Erro interno no servidor' });
   }
+});
+
+
+// ================= ERROR HANDLER GLOBAL =================
+app.use((err, req, res, next) => {
+  console.error('❌ Erro não tratado:', err.message);
+  console.error('❌ Stack:', err.stack);
+  res.status(err.status || 500).json({
+    error: err.message || 'Erro interno no servidor',
+    details: err.type || 'unhandled_error'
+  });
 });
 
 // ================= EXPORTAÇÃO =================
