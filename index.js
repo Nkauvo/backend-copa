@@ -1,4 +1,4 @@
-// index.js - Backend completo e corrigido
+// index.js - Backend com logs detalhados
 const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
@@ -15,16 +15,23 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// ================= LOG DE REQUISIÇÕES =================
+app.use((req, res, next) => {
+  console.log(`📥 ${req.method} ${req.path}`);
+  console.log('📦 Body:', req.body);
+  next();
+});
+
 // ================= SUPABASE =================
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 
-// Verifica se as variáveis estão configuradas
+console.log('🔍 Verificando variáveis de ambiente:');
+console.log('SUPABASE_URL:', supabaseUrl ? '✅ Configurado' : '❌ NÃO CONFIGURADO');
+console.log('SUPABASE_ANON_KEY:', supabaseKey ? '✅ Configurado' : '❌ NÃO CONFIGURADO');
+
 if (!supabaseUrl || !supabaseKey) {
-  console.error('❌ ERRO: SUPABASE_URL ou SUPABASE_ANON_KEY não configurados!');
-  console.log('📝 Configure as variáveis de ambiente no Vercel:');
-  console.log('   - SUPABASE_URL: https://pohqjocjoeuirfwmvnqe.supabase.co');
-  console.log('   - SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBvaHFqb2Nqb2V1aXJmd212bnFlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyMzUyODQsImV4cCI6MjA5NjgxMTI4NH0.S4h5cZ9PE3XVBc8tshQljphlsAVhu-2OEEdJNYgo7UY');
+  console.error('❌ ERRO CRÍTICO: Variáveis de ambiente não configuradas!');
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -35,13 +42,191 @@ app.get('/api/health', (req, res) => {
     status: 'online',
     timestamp: new Date().toISOString(),
     supabase_configured: !!supabaseUrl && !!supabaseKey,
-    supabase_url: supabaseUrl ? '✅ Configurado' : '❌ Não configurado'
+    environment: process.env.NODE_ENV || 'development'
   });
 });
 
-// ================= AUTENTICAÇÃO =================
+// ================= CADASTRO COM LOGS DETALHADOS =================
+app.post('/api/auth/cadastro', async (req, res) => {
+  console.log('🔵 ===== INICIANDO CADASTRO =====');
+  console.log('📝 Body recebido:', JSON.stringify(req.body, null, 2));
+  
+  try {
+    const { email, password, nome_usuario } = req.body;
 
-// Login
+    // Validação 1: Campos obrigatórios
+    console.log('🔍 Validando campos...');
+    if (!email) {
+      console.log('❌ Email faltando');
+      return res.status(400).json({ error: 'Email é obrigatório' });
+    }
+    
+    if (!password) {
+      console.log('❌ Senha faltando');
+      return res.status(400).json({ error: 'Senha é obrigatória' });
+    }
+    
+    if (!nome_usuario) {
+      console.log('❌ Nome de usuário faltando');
+      return res.status(400).json({ error: 'Nome de usuário é obrigatório' });
+    }
+
+    console.log('✅ Campos validados:', { email, nome_usuario });
+
+    // Validação 2: Tamanho da senha
+    if (password.length < 6) {
+      console.log('❌ Senha muito curta');
+      return res.status(400).json({ error: 'Senha deve ter no mínimo 6 caracteres' });
+    }
+
+    // Validação 3: Formato do email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      console.log('❌ Email inválido:', email);
+      return res.status(400).json({ error: 'Email inválido' });
+    }
+
+    console.log('✅ Email válido');
+
+    // Verifica se o nome de usuário já existe
+    console.log('🔍 Verificando se usuário já existe...');
+    const { data: usuarioExistente, error: buscaError } = await supabase
+      .from('perfis')
+      .select('nome_usuario')
+      .eq('nome_usuario', nome_usuario)
+      .maybeSingle();
+
+    if (buscaError) {
+      console.log('⚠️ Erro ao buscar usuário:', buscaError.message);
+    }
+
+    if (usuarioExistente) {
+      console.log('❌ Nome de usuário já existe:', nome_usuario);
+      return res.status(400).json({ error: 'Nome de usuário já está em uso' });
+    }
+
+    console.log('✅ Nome de usuário disponível');
+
+    // Cria usuário no Auth
+    console.log('🔐 Criando usuário no Supabase Auth...');
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          nome_usuario
+        }
+      }
+    });
+
+    if (error) {
+      console.error('❌ Erro no Auth:', error.message);
+      console.error('❌ Detalhes:', error);
+      
+      if (error.message.includes('already registered')) {
+        return res.status(400).json({ error: 'Este email já está cadastrado' });
+      }
+      
+      return res.status(400).json({ 
+        error: error.message,
+        details: error
+      });
+    }
+
+    if (!data.user) {
+      console.error('❌ Usuário não criado');
+      return res.status(400).json({ error: 'Erro ao criar usuário' });
+    }
+
+    console.log('✅ Usuário criado no Auth:', data.user.id);
+
+    // Cria perfil na tabela perfis
+    console.log('📝 Criando perfil do usuário...');
+    const { error: perfilError } = await supabase
+      .from('perfis')
+      .insert({
+        id: data.user.id,
+        nome_usuario,
+        email,
+        pontos: 0
+      });
+
+    if (perfilError) {
+      console.error('❌ Erro ao criar perfil:', perfilError.message);
+      console.error('❌ Detalhes:', perfilError);
+      
+      // Tenta deletar o usuário criado no auth
+      try {
+        await supabase.auth.admin.deleteUser(data.user.id);
+        console.log('🗑️ Usuário deletado do Auth devido a erro no perfil');
+      } catch (deleteError) {
+        console.error('❌ Erro ao deletar usuário:', deleteError);
+      }
+      
+      return res.status(500).json({ 
+        error: 'Erro ao criar perfil do usuário',
+        details: perfilError.message
+      });
+    }
+
+    console.log('✅ Perfil criado com sucesso para:', email);
+    console.log('🔵 ===== CADASTRO CONCLUÍDO COM SUCESSO =====');
+    
+    res.json({
+      success: true,
+      message: 'Usuário cadastrado com sucesso!',
+      user: {
+        id: data.user.id,
+        email: data.user.email,
+        nome_usuario
+      }
+    });
+  } catch (error) {
+    console.error('❌ Erro inesperado no cadastro:', error);
+    console.error('❌ Stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Erro interno no servidor',
+      details: error.message 
+    });
+  }
+});
+
+// ================= ROTA DE TESTE DO SUPABASE =================
+app.get('/api/test-supabase', async (req, res) => {
+  try {
+    console.log('🔍 Testando conexão com Supabase...');
+    
+    // Tenta fazer uma consulta simples
+    const { data, error } = await supabase
+      .from('perfis')
+      .select('count')
+      .limit(1);
+
+    if (error) {
+      console.error('❌ Erro no teste:', error);
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        details: error
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Conexão com Supabase OK',
+      supabase_url: supabaseUrl ? '✅ Configurado' : '❌ Não configurado',
+      data: data
+    });
+  } catch (error) {
+    console.error('❌ Erro no teste:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ================= OUTRAS ROTAS =================
 app.post('/api/auth/login', async (req, res) => {
   try {
     console.log('📝 Tentativa de login:', req.body.email);
@@ -62,7 +247,6 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: error.message });
     }
 
-    // Busca o perfil do usuário
     const { data: perfil, error: perfilError } = await supabase
       .from('perfis')
       .select('*')
@@ -89,122 +273,6 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// ================= CADASTRO CORRIGIDO =================
-app.post('/api/auth/cadastro', async (req, res) => {
-  try {
-    console.log('📝 Dados recebidos:', req.body);
-    
-    const { email, password, nome_usuario } = req.body;
-
-    // Validações
-    if (!email) {
-      return res.status(400).json({ error: 'Email é obrigatório' });
-    }
-    
-    if (!password) {
-      return res.status(400).json({ error: 'Senha é obrigatória' });
-    }
-    
-    if (!nome_usuario) {
-      return res.status(400).json({ error: 'Nome de usuário é obrigatório' });
-    }
-
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Senha deve ter no mínimo 6 caracteres' });
-    }
-
-    // Validação de email
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ error: 'Email inválido' });
-    }
-
-    // Verifica se o nome de usuário já existe
-    const { data: usuarioExistente, error: buscaError } = await supabase
-      .from('perfis')
-      .select('nome_usuario')
-      .eq('nome_usuario', nome_usuario)
-      .maybeSingle();
-
-    if (buscaError && buscaError.code !== 'PGRST116') {
-      console.error('❌ Erro ao verificar usuário:', buscaError.message);
-    }
-
-    if (usuarioExistente) {
-      return res.status(400).json({ error: 'Nome de usuário já está em uso' });
-    }
-
-    // Cria usuário no Auth
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          nome_usuario
-        }
-      }
-    });
-
-    if (error) {
-      console.error('❌ Erro no cadastro (Auth):', error.message);
-      
-      // Mensagens de erro mais amigáveis
-      if (error.message.includes('already registered')) {
-        return res.status(400).json({ error: 'Este email já está cadastrado' });
-      }
-      
-      return res.status(400).json({ error: error.message });
-    }
-
-    if (!data.user) {
-      return res.status(400).json({ error: 'Erro ao criar usuário' });
-    }
-
-    console.log('✅ Usuário criado no Auth:', data.user.id);
-
-    // Cria perfil na tabela perfis
-    const { error: perfilError } = await supabase
-      .from('perfis')
-      .insert({
-        id: data.user.id,
-        nome_usuario,
-        email,
-        pontos: 0
-      });
-
-    if (perfilError) {
-      console.error('❌ Erro ao criar perfil:', perfilError.message);
-      
-      // Tenta deletar o usuário criado no auth
-      try {
-        await supabase.auth.admin.deleteUser(data.user.id);
-      } catch (deleteError) {
-        console.error('❌ Erro ao deletar usuário:', deleteError);
-      }
-      
-      return res.status(500).json({ error: 'Erro ao criar perfil do usuário' });
-    }
-
-    console.log('✅ Perfil criado com sucesso para:', email);
-    
-    res.json({
-      success: true,
-      message: 'Usuário cadastrado com sucesso!',
-      user: {
-        id: data.user.id,
-        email: data.user.email,
-        nome_usuario
-      }
-    });
-  } catch (error) {
-    console.error('❌ Erro no cadastro:', error);
-    res.status(500).json({ 
-      error: 'Erro interno no servidor. Tente novamente mais tarde.' 
-    });
-  }
-});
-
-// ================= PERFIL =================
 app.post('/api/perfil', async (req, res) => {
   try {
     const { userId } = req.body;
@@ -233,7 +301,6 @@ app.post('/api/perfil', async (req, res) => {
   }
 });
 
-// ================= JOGOS =================
 app.get('/api/jogos', async (req, res) => {
   try {
     console.log('📝 Buscando jogos...');
@@ -256,7 +323,6 @@ app.get('/api/jogos', async (req, res) => {
   }
 });
 
-// ================= PALPITES =================
 app.post('/api/palpites', async (req, res) => {
   try {
     const { userId, jogoId, placar_casa, placar_fora } = req.body;
@@ -267,7 +333,6 @@ app.post('/api/palpites', async (req, res) => {
       return res.status(400).json({ error: 'Todos os campos são obrigatórios' });
     }
 
-    // Verifica se o jogo existe
     const { data: jogo, error: jogoError } = await supabase
       .from('jogos')
       .select('encerrado')
@@ -282,7 +347,6 @@ app.post('/api/palpites', async (req, res) => {
       return res.status(400).json({ error: 'Este jogo já foi encerrado' });
     }
 
-    // Verifica se já existe um palpite
     const { data: palpiteExistente } = await supabase
       .from('palpites')
       .select('id')
@@ -293,7 +357,6 @@ app.post('/api/palpites', async (req, res) => {
     let resultado;
 
     if (palpiteExistente) {
-      // Atualiza
       const { data, error } = await supabase
         .from('palpites')
         .update({
@@ -310,7 +373,6 @@ app.post('/api/palpites', async (req, res) => {
       }
       resultado = data;
     } else {
-      // Cria novo
       const { data, error } = await supabase
         .from('palpites')
         .insert({
@@ -341,7 +403,6 @@ app.post('/api/palpites', async (req, res) => {
   }
 });
 
-// Listar palpites de um usuário
 app.get('/api/palpites/usuario/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
@@ -379,7 +440,6 @@ app.get('/api/palpites/usuario/:userId', async (req, res) => {
   }
 });
 
-// ================= RANKING =================
 app.get('/api/ranking', async (req, res) => {
   try {
     console.log('📝 Buscando ranking...');
@@ -399,30 +459,6 @@ app.get('/api/ranking', async (req, res) => {
   } catch (error) {
     console.error('❌ Erro ao buscar ranking:', error);
     res.status(500).json({ error: 'Erro interno no servidor' });
-  }
-});
-
-// ================= ROTA DE TESTE SUPABASE =================
-app.get('/api/test-supabase', async (req, res) => {
-  try {
-    // Testa a conexão com o Supabase
-    const { data, error } = await supabase
-      .from('perfis')
-      .select('count')
-      .limit(1);
-
-    res.json({
-      success: !error,
-      error: error?.message || null,
-      data: data,
-      supabase_url: supabaseUrl ? '✅ Configurado' : '❌ Não configurado',
-      supabase_key: supabaseKey ? '✅ Configurado' : '❌ Não configurado'
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
   }
 });
 
